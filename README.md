@@ -30,7 +30,9 @@ cd CIS
 pip install -r requirements.txt
 ```
 
-### Running a simple experiment
+### Running experiments
+
+#### 1. Factual recall baseline (no intervention)
 
 ```bash
 python src/experiments/run_single_fact.py --config config/experiment.yaml
@@ -41,6 +43,23 @@ This will:
 2. Run factual recall on a sample from CounterFact dataset
 3. Display top-5 next-token predictions with probabilities
 4. Show memory usage and timing information
+
+#### 2. Causal sanity check (residual stream intervention)
+
+```bash
+python src/experiments/run_causal_check.py --config config/experiment.yaml
+```
+
+This experiment:
+1. Runs baseline inference (no intervention)
+2. Applies a small random perturbation to the residual stream at a chosen layer
+3. Compares prediction distributions to verify causal sensitivity
+4. Validates that the hook mechanism works correctly
+
+Optional arguments:
+- `--layer N`: Specify which transformer layer to intervene on (default: middle layer)
+- `--token-position N`: Which token to perturb (-1 = last token)
+- `--perturbation-norm X`: L2 norm of random perturbation (default: 0.01)
 
 ### Configuration
 
@@ -70,9 +89,46 @@ See [KAGGLE_SETUP.md](KAGGLE_SETUP.md) for detailed instructions on running expe
 
 - **Flexible model loading**: Supports both FP16 and 4-bit quantization
 - **Flash Attention 2**: Faster inference when available
+- **Residual stream hooks**: Causal intervention on internal activations
+- **Activation capture**: Record hidden states for analysis
 - **Detailed logging**: Track model loading, inference time, and memory usage
 - **Memory optimized**: Configurable memory limits and automatic device mapping
 - **Kaggle-ready**: Easy setup for cloud GPU environments
+
+## Architecture
+
+### Hook System
+
+The residual stream hook system (`src/hooks/residual_hooks.py`) enables causal interventions:
+
+```python
+from src.hooks.residual_hooks import add_residual_perturbation_hook, get_hidden_size
+
+# Create a small perturbation
+hidden_size = get_hidden_size(model)
+delta = torch.randn(hidden_size) * 0.01
+
+# Apply intervention at layer 16, last token position
+handle, _ = add_residual_perturbation_hook(
+    model=model,
+    layer_idx=16,
+    delta_vector=delta,
+    token_position=-1
+)
+
+# Run inference with intervention
+logits = model(input_ids)
+
+# Remove hook
+handle.remove()
+```
+
+Key functions:
+- `add_residual_perturbation_hook()`: Inject perturbations into residual stream
+- `register_residual_capture()`: Capture activations for analysis
+- `get_model_num_layers()`: Get total transformer layers
+- `get_hidden_size()`: Get hidden dimension size
+- `clear_hooks()`: Clean up all hooks
 
 ## Notes
 - All experiments assume access to a GPU and do not perform any parameter updates.
