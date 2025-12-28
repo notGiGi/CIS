@@ -149,19 +149,37 @@ use_flash_attention: true  # Ya está activado por defecto
 - `src/experiments/run_single_fact.py`: Script principal
 - `data/counterfact_subset.json`: Datos de ejemplo
 
+## Ejemplo de notebook completo
+
+Puedes copiar el código del archivo [kaggle_notebook_example.py](kaggle_notebook_example.py) directamente en tu notebook de Kaggle. El archivo contiene celdas listas para usar.
+
 ## Troubleshooting
 
 ### Error: "CUDA out of memory"
 
-Solución: Activa cuantización 4-bit (ver arriba)
+**Solución:** Activa cuantización 4-bit en `config/model.yaml`:
 
-### Error: "Cannot download model"
+```yaml
+use_4bit: true
+bnb_4bit_quant_type: nf4
+bnb_4bit_compute_dtype: float16
+```
 
-Solución: Asegúrate de que `local_files_only: false` en el config
+### Error: "Cannot download model" o "Connection timeout"
 
-### Warning: "Flash Attention not available"
+**Solución 1:** Asegúrate de que `local_files_only: false` en el config
 
-Esto es normal - el código usará atención estándar automáticamente.
+**Solución 2:** El modelo es grande (14GB). Espera a que termine la descarga. Kaggle tiene buen cache de HuggingFace.
+
+### Error: "Flash Attention not available" o ImportError con flash_attn
+
+**Solución:** Esto está **resuelto automáticamente**. El código detecta que flash-attn no está instalado y usa atención estándar. No es necesario hacer nada.
+
+Si ves este error, significa que `use_flash_attention: true` en el config pero flash-attn no está instalado. El código automáticamente hará fallback a atención estándar.
+
+### Warning: "pydantic" o "MessageFactory" warnings
+
+**Solución:** Estos warnings son normales en Kaggle y no afectan la ejecución. Puedes ignorarlos.
 
 ## Recursos
 
