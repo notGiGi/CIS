@@ -37,6 +37,72 @@ def load_config(path: str) -> Dict[str, Any]:
         return yaml.safe_load(f)
 
 
+def evaluate_gap_at_scale(
+    model: Any,
+    tokenizer: Any,
+    prompt: str,
+    target_completion: str,
+    original_completion: str,
+    layer_idx: int,
+    token_position: int,
+    delta_vector: torch.Tensor,
+    alpha: float,
+    device: str,
+) -> float:
+    """Evaluate gap when applying alpha * delta_vector.
+
+    Args:
+        model: Transformer model
+        tokenizer: Tokenizer
+        prompt: Input text
+        target_completion: Counterfactual target
+        original_completion: Factual completion
+        layer_idx: Layer to intervene on
+        token_position: Token position
+        delta_vector: Delta vector to scale
+        alpha: Scaling factor
+        device: Device
+
+    Returns:
+        gap: logit_target - logit_original
+    """
+    # Tokenize
+    target_token_id = tokenizer.encode(target_completion, add_special_tokens=False)[0]
+    original_token_id = tokenizer.encode(original_completion, add_special_tokens=False)[0]
+
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+
+    # Scale delta
+    scaled_delta = alpha * delta_vector
+
+    # Forward pass with scaled delta
+    handle = None
+    try:
+        handle, _ = add_residual_perturbation_hook(
+            model=model,
+            layer_idx=layer_idx,
+            delta_vector=scaled_delta,
+            token_position=token_position,
+        )
+
+        with torch.no_grad():
+            outputs = model(**inputs)
+            logits = outputs.logits[0, -1, :]
+
+            # Extract logits
+            logit_target = logits[target_token_id]
+            logit_original = logits[original_token_id]
+
+            # Compute gap
+            gap = (logit_target - logit_original).item()
+
+    finally:
+        if handle is not None:
+            handle.remove()
+
+    return gap
+
+
 def run_single_optimization(
     model: Any,
     tokenizer: Any,
@@ -186,81 +252,57 @@ def run_single_optimization(
     # Return final delta vector for bisection
     final_delta_vector = delta().detach().clone()
 
+    # CONSISTENCY CHECK: Verify gap using bisection's evaluation function
+    # This ensures optimization and bisection measure the same gap
+    gap_recomputed = evaluate_gap_at_scale(
+        model=model,
+        tokenizer=tokenizer,
+        prompt=prompt,
+        target_completion=target_completion,
+        original_completion=original_completion,
+        layer_idx=layer_idx,
+        token_position=token_position,
+        delta_vector=final_delta_vector,
+        alpha=1.0,
+        device=device,
+    )
+
+    gap_diff = abs(final_gap - gap_recomputed)
+
+    if verbose:
+        print(f"\nConsistency Check:")
+        print(f"  Gap from optimization: {final_gap:.6f}")
+        print(f"  Gap from bisection eval (alpha=1.0): {gap_recomputed:.6f}")
+        print(f"  Absolute difference: {gap_diff:.6f}")
+
+    # Strict consistency check
+    if gap_diff > 1e-3:
+        error_msg = (
+            f"\n{'='*80}\n"
+            f"CONSISTENCY CHECK FAILED\n"
+            f"{'='*80}\n"
+            f"Optimization and bisection are measuring different gaps!\n"
+            f"  Gap from optimization: {final_gap:.6f}\n"
+            f"  Gap from bisection eval (alpha=1.0): {gap_recomputed:.6f}\n"
+            f"  Absolute difference: {gap_diff:.6f} (threshold: 1e-3)\n"
+            f"\nThis indicates a bug in the evaluation pipeline.\n"
+            f"{'='*80}\n"
+        )
+        raise ValueError(error_msg)
+
+    if verbose:
+        print(f"  ✓ Consistency check passed (diff < 1e-3)")
+
     return {
         "success": success,
         "num_steps": step + 1 if success else max_steps,
         "final_gap": final_gap,
+        "gap_recomputed": gap_recomputed,  # Include recomputed gap
         "final_delta_norm": final_delta_norm,
         "final_delta_vector": final_delta_vector,
         "target_prob": final_target_prob,
         "original_prob": final_original_prob,
     }
-
-
-def evaluate_gap_at_scale(
-    model: Any,
-    tokenizer: Any,
-    prompt: str,
-    target_completion: str,
-    original_completion: str,
-    layer_idx: int,
-    token_position: int,
-    delta_vector: torch.Tensor,
-    alpha: float,
-    device: str,
-) -> float:
-    """Evaluate gap when applying alpha * delta_vector.
-
-    Args:
-        model: Transformer model
-        tokenizer: Tokenizer
-        prompt: Input text
-        target_completion: Counterfactual target
-        original_completion: Factual completion
-        layer_idx: Layer to intervene on
-        token_position: Token position
-        delta_vector: Delta vector to scale
-        alpha: Scaling factor
-        device: Device
-
-    Returns:
-        gap: logit_target - logit_original
-    """
-    # Tokenize
-    target_token_id = tokenizer.encode(target_completion, add_special_tokens=False)[0]
-    original_token_id = tokenizer.encode(original_completion, add_special_tokens=False)[0]
-
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
-
-    # Scale delta
-    scaled_delta = alpha * delta_vector
-
-    # Forward pass with scaled delta
-    handle = None
-    try:
-        handle, _ = add_residual_perturbation_hook(
-            model=model,
-            layer_idx=layer_idx,
-            delta_vector=scaled_delta,
-            token_position=token_position,
-        )
-
-        with torch.no_grad():
-            outputs = model(**inputs)
-            logits = outputs.logits[0, -1, :]
-
-            # Extract logits
-            logit_target = logits[target_token_id]
-            logit_original = logits[original_token_id]
-
-            # Compute gap
-            gap = (logit_target - logit_original).item()
-
-    finally:
-        if handle is not None:
-            handle.remove()
-
-    return gap
 
 
 def bisection_find_minimal_alpha(
