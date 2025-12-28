@@ -12,6 +12,11 @@ from src.cis.losses import (
     margin_loss,
     regularization_loss,
 )
+from src.cis.metrics import (
+    compute_normalized_metrics,
+    get_comprehensive_metrics,
+    measure_residual_norm,
+)
 from src.cis.optimizer import CISOptimizer
 
 __all__ = [
@@ -22,4 +27,7 @@ __all__ = [
     "combined_loss",
     "regularization_loss",
     "CISOptimizer",
+    "measure_residual_norm",
+    "compute_normalized_metrics",
+    "get_comprehensive_metrics",
 ]
