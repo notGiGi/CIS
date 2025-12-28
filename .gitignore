@@ -44,8 +44,9 @@ env/
 .offload/
 *.bin
 *.safetensors
-models/
-cache/
+/models/
+/cache/
+**/model_cache/
 
 # Jupyter Notebook
 .ipynb_checkpoints/
