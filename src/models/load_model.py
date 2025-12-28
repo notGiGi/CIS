@@ -126,13 +126,23 @@ def load_model_and_tokenizer(model_config: Optional[Dict[str, Any]] = None) -> T
 
         # Enable Flash Attention 2 if requested and available
         if use_flash_attention:
-            try:
-                model_kwargs["attn_implementation"] = "flash_attention_2"
-                logger.info("Flash Attention 2 enabled")
-            except Exception:
-                logger.warning("Flash Attention 2 requested but not available, using default attention")
+            model_kwargs["attn_implementation"] = "flash_attention_2"
+            logger.info("Attempting to load model with Flash Attention 2")
 
-        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        # Try loading with Flash Attention 2 first, fallback to default if it fails
+        try:
+            model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        except (ImportError, ValueError) as e:
+            if use_flash_attention and "flash_attn" in str(e).lower():
+                logger.warning(
+                    "Flash Attention 2 is not available (flash-attn not installed). "
+                    "Falling back to default attention implementation."
+                )
+                # Remove flash attention requirement and retry
+                model_kwargs.pop("attn_implementation", None)
+                model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+            else:
+                raise
         model.eval()
 
         # Freeze all parameters for inference-only use

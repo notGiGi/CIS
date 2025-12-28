@@ -28,15 +28,17 @@ En la primera celda del notebook, ejecuta:
 !pip install -q -r requirements.txt
 ```
 
-### 5. Verificar instalación de Flash Attention (opcional)
+### 5. Flash Attention 2 (Opcional - No requerido)
 
-Para mejorar la velocidad de inferencia:
+Flash Attention 2 puede acelerar la inferencia, pero **no es necesario**. El código automáticamente detecta si no está disponible y usa atención estándar.
+
+Si quieres intentar instalarlo (puede tardar varios minutos):
 
 ```python
 !pip install -q flash-attn --no-build-isolation
 ```
 
-**Nota:** Si falla la instalación de flash-attn, el código funcionará igual usando atención estándar.
+**Nota:** La instalación puede fallar en Kaggle. Esto está bien - el modelo cargará automáticamente con atención estándar.
 
 ### 6. Descargar el modelo Mistral-7B
 

@@ -11,4 +11,4 @@ device_map: auto
 offload_folder: .offload
 max_memory: null  # Set to null to use all available memory
 use_4bit: false  # Disable 4-bit quantization for better precision
-use_flash_attention: true  # Enable Flash Attention 2 for faster inference if available
+use_flash_attention: false  # Set to true if flash-attn is installed (auto-fallback if not available)
