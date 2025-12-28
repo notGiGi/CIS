@@ -64,10 +64,6 @@ def add_residual_perturbation_hook(
     """
     layer = _get_transformer_layer(model, layer_idx)
 
-    # Ensure delta is on the same device as the model
-    if delta_vector.device != next(model.parameters()).device:
-        delta_vector = delta_vector.to(next(model.parameters()).device)
-
     def hook_fn(module: nn.Module, input: Tuple[torch.Tensor], output: Tuple[torch.Tensor]) -> Tuple[torch.Tensor]:
         """Hook function that intercepts and modifies the residual stream output.
 
@@ -83,14 +79,18 @@ def add_residual_perturbation_hook(
         # Clone to avoid in-place modification issues
         modified_hidden = hidden_states.clone()
 
+        # Move delta to same device as hidden states (important for multi-GPU)
+        delta_device = modified_hidden.device
+        delta_on_device = delta_vector.to(delta_device)
+
         # Apply perturbation to specified token position
         # hidden_states shape: [batch_size, seq_len, hidden_dim]
         if token_position == -1:
             # Last token position
-            modified_hidden[:, -1, :] = modified_hidden[:, -1, :] + delta_vector
+            modified_hidden[:, -1, :] = modified_hidden[:, -1, :] + delta_on_device
         else:
             # Specific token position
-            modified_hidden[:, token_position, :] = modified_hidden[:, token_position, :] + delta_vector
+            modified_hidden[:, token_position, :] = modified_hidden[:, token_position, :] + delta_on_device
 
         # Return modified output in same format as input
         if isinstance(output, tuple):
