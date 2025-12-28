@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
 from src.cis.delta import LearnableDelta  # noqa: E402
-from src.cis.losses import combined_loss, regularization_loss  # noqa: E402
+from src.cis.losses import combined_loss, margin_flip_loss, regularization_loss  # noqa: E402
 from src.hooks.residual_hooks import (  # noqa: E402
     add_residual_perturbation_hook,
     get_hidden_size,
@@ -128,6 +128,10 @@ class CISOptimizer:
             device=self.device,
         )
 
+        # Verify delta starts at zero
+        initial_norm = self.delta.get_norm(p=2)
+        assert initial_norm < 1e-6, f"Delta should start at zero, but ||δ|| = {initial_norm}"
+
         # Initialize optimizer (only optimize delta)
         self.optimizer = optim.Adam(self.delta.parameters(), lr=learning_rate)
 
@@ -143,10 +147,16 @@ class CISOptimizer:
             if original_completion:
                 print(f"Original: {original_completion!r} (token_id={original_token_id})")
             print(f"\nLearning rate: {learning_rate}, Reg weight: {reg_weight}")
-            print(f"Loss type: {loss_type}, Max steps: {max_steps}\n")
+            print(f"Loss type: {loss_type}, Max steps: {max_steps}")
+            print(f"Initial ||δ|| = {initial_norm:.8f} (should be ~0.0)\n")
 
         # Optimization loop
         for step in range(max_steps):
+            # Log delta norm BEFORE optimizer step (for first 3 iterations)
+            if step < 3 and verbose:
+                delta_norm_before = self.delta.get_norm(p=2)
+                print(f"[Step {step}] BEFORE step: ||δ|| = {delta_norm_before:.8f}")
+
             self.optimizer.zero_grad()
 
             # Get current delta value
@@ -178,12 +188,11 @@ class CISOptimizer:
                     elif loss_type == "margin":
                         if original_token_id is None:
                             raise ValueError("margin loss requires original_completion")
-                        task_loss = combined_loss(
+                        # Use margin_flip_loss for scientifically valid minimal-norm optimization
+                        task_loss = margin_flip_loss(
                             logits,
                             target_token_id,
                             original_token_id,
-                            alpha=0.0,
-                            beta=1.0,
                             margin=margin,
                         )
                     elif loss_type == "combined":
@@ -225,6 +234,11 @@ class CISOptimizer:
                 # Check if target is top-1
                 top1_id = logits.argmax().item()
                 success = top1_id == target_token_id
+
+            # Log delta norm AFTER optimizer step (for first 3 iterations)
+            if step < 3 and verbose:
+                print(f"[Step {step}] AFTER step:  ||δ|| = {delta_norm:.8f}")
+                print()
 
             # Log
             if verbose and (step % log_every == 0 or success):

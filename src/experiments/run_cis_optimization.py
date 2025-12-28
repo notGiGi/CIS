@@ -251,17 +251,189 @@ def run_cis_experiment(config_path: str) -> None:
         print(f"\n✓ Results saved to: {save_path}")
 
 
+def run_lambda_sweep(config_path: str) -> None:
+    """Run CIS optimization with regularization sweep to find minimal-norm solution.
+
+    This sweeps over different L2 regularization weights to find the minimal
+    perturbation that achieves a successful flip.
+
+    Args:
+        config_path: Path to experiment YAML config
+    """
+    import time
+
+    # Load configuration
+    exp_config = load_config(config_path)
+    model_config_path = exp_config.get("model_config", "config/model.yaml")
+    model_config = load_config(model_config_path)
+
+    # Set seed
+    seed = exp_config.get("seed", 0)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+    print("=" * 80)
+    print("CIS OPTIMIZATION: Regularization Sweep")
+    print("=" * 80)
+    print(f"\nSeed: {seed}")
+    print(f"Model: {model_config.get('model_name', 'mistralai/Mistral-7B-v0.1')}")
+
+    # Load model
+    print("\nLoading model and tokenizer...")
+    start_time = time.time()
+    model, tokenizer = load_model_and_tokenizer(model_config)
+    load_time = time.time() - start_time
+    print(f"✓ Model loaded in {load_time:.2f}s")
+
+    device = model_config.get("device", "cuda")
+    num_layers = get_model_num_layers(model)
+
+    # Get experiment parameters
+    cis_config = exp_config.get("cis_optimization", {})
+
+    # Fact details
+    subject = exp_config.get("subject", "Eiffel Tower")
+    relation = exp_config.get("relation", "located in")
+    expected_completion = exp_config.get("expected_completion", " Paris")
+    target_completion = cis_config.get("target_completion", " London")
+
+    # Intervention configuration
+    layer_idx = cis_config.get("layer", num_layers // 2)
+    token_position = cis_config.get("token_position", -1)
+
+    # Optimization hyperparameters
+    max_steps = cis_config.get("max_steps", 200)
+    learning_rate = cis_config.get("learning_rate", 0.05)
+    margin = cis_config.get("margin", 1.0)
+
+    # Build prompt
+    prompt = make_factual_prompt(subject, relation)
+
+    print(f"\nExperiment Configuration:")
+    print(f"  Prompt: {prompt!r}")
+    print(f"  Expected (factual): {expected_completion!r}")
+    print(f"  Target (counterfactual): {target_completion!r}")
+    print(f"\nIntervention:")
+    print(f"  Layer: {layer_idx} (out of {num_layers})")
+    print(f"  Token position: {token_position}")
+    print(f"\nOptimization:")
+    print(f"  Max steps: {max_steps}")
+    print(f"  Learning rate: {learning_rate}")
+    print(f"  Margin: {margin}")
+    print(f"  Loss type: margin_flip")
+
+    # Lambda sweep values
+    lambda_values = [1e-4, 1e-3, 1e-2, 1e-1]
+
+    print(f"\n✓ Sweeping over lambda_l2 = {lambda_values}")
+    print("\n" + "=" * 80)
+
+    # Store results for each lambda
+    sweep_results = []
+
+    for lambda_l2 in lambda_values:
+        print(f"\n{'='*80}")
+        print(f"LAMBDA = {lambda_l2:.1e}")
+        print(f"{'='*80}")
+
+        # Initialize optimizer
+        optimizer = CISOptimizer(
+            model=model,
+            tokenizer=tokenizer,
+            layer_idx=layer_idx,
+            token_position=token_position,
+            device=device,
+        )
+
+        # Run optimization with margin_flip_loss
+        # We need to import margin_flip_loss
+        from src.cis.losses import margin_flip_loss  # noqa: E402
+
+        results = optimizer.optimize(
+            prompt=prompt,
+            target_completion=target_completion,
+            original_completion=expected_completion,
+            max_steps=max_steps,
+            learning_rate=learning_rate,
+            reg_weight=lambda_l2,
+            reg_type="l2",
+            loss_type="margin",  # Use margin loss
+            margin=margin,
+            tolerance=1e-6,
+            early_stop_margin=0.5,
+            verbose=False,  # Suppress per-step logging for sweep
+            log_every=10,
+        )
+
+        # Record results
+        sweep_results.append({
+            "lambda": lambda_l2,
+            "success": results["success"],
+            "steps": results["num_steps"],
+            "geometric_cost": results["geometric_cost"],
+            "target_prob": results["target_prob"],
+            "original_prob": results["original_prob"],
+        })
+
+        # Print summary for this lambda
+        if results["success"]:
+            print(f"✓ SUCCESS: Flipped in {results['num_steps']} steps")
+        else:
+            print(f"✗ FAILED: Did not flip")
+        print(f"  ||δ|| = {results['geometric_cost']:.6f}")
+        print(f"  P(target) = {results['target_prob']:.4f}")
+        print(f"  P(orig) = {results['original_prob']:.4f}")
+
+    # Print summary table
+    print("\n" + "=" * 80)
+    print("SUMMARY TABLE")
+    print("=" * 80)
+    print(f"\n{'Lambda':<12} {'Success':<10} {'Steps':<8} {'||δ||':<12} {'P(target)':<12} {'P(orig)':<12}")
+    print("-" * 80)
+
+    for res in sweep_results:
+        success_str = "✓ YES" if res["success"] else "✗ NO"
+        print(
+            f"{res['lambda']:<12.1e} {success_str:<10} {res['steps']:<8} "
+            f"{res['geometric_cost']:<12.6f} {res['target_prob']:<12.4f} "
+            f"{res['original_prob']:<12.4f}"
+        )
+
+    # Find minimal-norm successful solution
+    successful = [r for r in sweep_results if r["success"]]
+    if successful:
+        minimal = min(successful, key=lambda x: x["geometric_cost"])
+        print("\n" + "=" * 80)
+        print("MINIMAL-NORM SOLUTION")
+        print("=" * 80)
+        print(f"\n✓ Best lambda: {minimal['lambda']:.1e}")
+        print(f"✓ Geometric cost (factual rigidity): {minimal['geometric_cost']:.6f}")
+        print(f"✓ Steps to flip: {minimal['steps']}")
+        print(f"✓ Final P(target): {minimal['target_prob']:.4f}")
+        print(f"✓ Final P(orig): {minimal['original_prob']:.4f}")
+    else:
+        print("\n✗ No successful flips found. Try:")
+        print("  - Increasing max_steps")
+        print("  - Decreasing lambda values")
+        print("  - Trying a different layer")
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Run CIS optimization experiment")
     parser.add_argument("--config", type=str, required=True, help="Path to experiment YAML config")
+    parser.add_argument("--sweep", action="store_true", help="Run lambda sweep instead of single optimization")
     return parser.parse_args()
 
 
 def main() -> None:
     """CLI wrapper for CIS optimization."""
     args = parse_args()
-    run_cis_experiment(args.config)
+    if args.sweep:
+        run_lambda_sweep(args.config)
+    else:
+        run_cis_experiment(args.config)
 
 
 if __name__ == "__main__":

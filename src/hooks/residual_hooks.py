@@ -83,14 +83,24 @@ def add_residual_perturbation_hook(
         delta_device = modified_hidden.device
         delta_on_device = delta_vector.to(delta_device)
 
-        # Apply perturbation to specified token position
+        # Verify shapes match
+        batch_size, seq_len, hidden_dim = modified_hidden.shape
+        assert delta_on_device.shape == (hidden_dim,), \
+            f"Delta shape mismatch: expected ({hidden_dim},), got {delta_on_device.shape}"
+
+        # Apply perturbation to specified token position ONLY
         # hidden_states shape: [batch_size, seq_len, hidden_dim]
         if token_position == -1:
             # Last token position
-            modified_hidden[:, -1, :] = modified_hidden[:, -1, :] + delta_on_device
+            target_pos = seq_len - 1
         else:
             # Specific token position
-            modified_hidden[:, token_position, :] = modified_hidden[:, token_position, :] + delta_on_device
+            target_pos = token_position
+            assert 0 <= token_position < seq_len, \
+                f"Token position {token_position} out of range [0, {seq_len})"
+
+        # Apply delta ONLY at target position (not affecting other positions)
+        modified_hidden[:, target_pos, :] = modified_hidden[:, target_pos, :] + delta_on_device
 
         # Return modified output in same format as input
         if isinstance(output, tuple):

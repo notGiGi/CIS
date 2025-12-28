@@ -23,8 +23,8 @@ cis_optimization:
   reg_type: "l2"                 # Regularization type (l2, l1)
 
   # Loss configuration
-  loss_type: "nll"               # Loss function (nll, margin, combined)
-  margin: 0.0                    # Margin for margin loss
+  loss_type: "margin"            # Loss function (nll, margin, combined)
+  margin: 1.0                    # Margin for margin loss
   alpha: 1.0                     # Weight for NLL term (if combined)
   beta: 0.0                      # Weight for margin term (if combined)
 

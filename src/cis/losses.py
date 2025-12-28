@@ -94,6 +94,50 @@ def margin_loss(
     return loss.mean()
 
 
+def margin_flip_loss(
+    logits: torch.Tensor,
+    target_token_id: int,
+    original_token_id: int,
+    margin: float = 1.0,
+) -> torch.Tensor:
+    """Compute margin-based flip loss for CIS optimization.
+
+    This is the recommended loss for finding minimal-norm perturbations that flip
+    a factual prediction to a counterfactual target.
+
+    Args:
+        logits: Model output logits [vocab_size] or [batch, vocab_size]
+        target_token_id: ID of counterfactual target
+        original_token_id: ID of original factual token
+        margin: Desired margin (default: 1.0 for stable optimization)
+
+    Returns:
+        loss: Scalar loss value
+
+    Loss form:
+        L = relu(margin - (logit_target - logit_orig))
+        L = max(0, margin - logit_target + logit_orig)
+
+    When logit_target > logit_orig + margin, loss = 0 (flip achieved).
+    Otherwise, loss > 0 (need to optimize more).
+
+    Scientific intent:
+        Combined with L2 regularization on delta, this objective encourages
+        the minimal-norm perturbation that achieves the flip by at least the margin.
+    """
+    if logits.dim() == 1:
+        target_logit = logits[target_token_id]
+        original_logit = logits[original_token_id]
+    else:
+        target_logit = logits[:, target_token_id]
+        original_logit = logits[:, original_token_id]
+
+    # Hinge loss: relu(margin - (target - original))
+    loss = torch.clamp(margin - (target_logit - original_logit), min=0.0)
+
+    return loss.mean()
+
+
 def combined_loss(
     logits: torch.Tensor,
     target_token_id: int,
