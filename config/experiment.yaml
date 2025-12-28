@@ -1,24 +1,40 @@
 seed: 0
 model_config: config/model.yaml
 data_path: data/counterfact_subset.json
-prompt_template: factual_prompt_v1
 
-intervention:
-  layer: 16
-  token_index: -1
-  subspace: residual
-  magnitude_init: 0.1
+# Fact to test
+subject: "Eiffel Tower"
+relation: "located in"
+expected_completion: " Paris"
 
+# CIS Optimization parameters
 cis_optimization:
-  target_completion: " Rome"
-  max_steps: 200
-  step_size: 0.05
-  tolerance: 1.0e-4
-  early_stop_margin: 0.5
-  projection: none
-  regularization_weight: 0.0
+  # Counterfactual target
+  target_completion: " London"
 
+  # Intervention configuration
+  layer: 16                      # Which transformer layer (default: middle)
+  token_position: -1             # Which token (-1 = last)
+
+  # Optimization hyperparameters
+  max_steps: 200                 # Maximum optimization iterations
+  learning_rate: 0.05            # Adam learning rate
+  reg_weight: 0.01               # L2 regularization weight
+  reg_type: "l2"                 # Regularization type (l2, l1)
+
+  # Loss configuration
+  loss_type: "nll"               # Loss function (nll, margin, combined)
+  margin: 0.0                    # Margin for margin loss
+  alpha: 1.0                     # Weight for NLL term (if combined)
+  beta: 0.0                      # Weight for margin term (if combined)
+
+  # Convergence criteria
+  tolerance: 1.0e-4              # Stop if loss < this
+  early_stop_margin: 0.5         # Stop if P(target) > this
+
+# Analysis settings
 analysis:
-  k_alternatives: 5
-  logit_temperature: 1.0
-  report_geometric_cost: true
+  k_alternatives: 5              # Top-k predictions to report
+
+# Optional: Save results to JSON
+save_results: null               # Set to path to save (e.g., "results/cis_result.json")
