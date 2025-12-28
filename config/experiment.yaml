@@ -1,0 +1,24 @@
+seed: 0
+model_config: config/model.yaml
+data_path: data/counterfact_subset.json
+prompt_template: factual_prompt_v1
+
+intervention:
+  layer: 16
+  token_index: -1
+  subspace: residual
+  magnitude_init: 0.1
+
+cis_optimization:
+  target_completion: " Rome"
+  max_steps: 200
+  step_size: 0.05
+  tolerance: 1.0e-4
+  early_stop_margin: 0.5
+  projection: none
+  regularization_weight: 0.0
+
+analysis:
+  k_alternatives: 5
+  logit_temperature: 1.0
+  report_geometric_cost: true

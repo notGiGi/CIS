@@ -1,0 +1,12 @@
+torch
+transformers
+accelerate
+bitsandbytes
+datasets
+numpy
+scipy
+tqdm
+pyyaml
+ipykernel
+protobuf
+sentencepiece

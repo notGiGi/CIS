@@ -1,0 +1,10 @@
+[
+  {
+    "prompt": "The Eiffel Tower is located in",
+    "subject": "Eiffel Tower",
+    "relation": "location",
+    "gold_completion": " Paris",
+    "counterfactual_completion": " Rome",
+    "source": "counterfact_demo"
+  }
+]
