@@ -17,6 +17,64 @@ The pilot experiment targets a single fact such as "The Eiffel Tower is located 
 - `src/`: Modular code for loading models, constructing prompts, attaching hooks, searching for CIS, computing metrics, and orchestrating experiments.
 - `notebooks/`: Lightweight notebooks for exploratory analyses and visualization.
 
+## Quick Start
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/notGiGi/CIS.git
+cd CIS
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Running a simple experiment
+
+```bash
+python src/experiments/run_single_fact.py --config config/experiment.yaml
+```
+
+This will:
+1. Load Mistral-7B-v0.1 in FP16 precision
+2. Run factual recall on a sample from CounterFact dataset
+3. Display top-5 next-token predictions with probabilities
+4. Show memory usage and timing information
+
+### Configuration
+
+The model can be configured in `config/model.yaml`:
+
+```yaml
+model_name: mistralai/Mistral-7B-v0.1
+dtype: float16              # Full precision (FP16)
+use_4bit: false             # Set to true for 4-bit quantization
+use_flash_attention: true   # Enable Flash Attention 2 for speed
+device_map: auto            # Automatic GPU distribution
+```
+
+**For limited memory environments**, enable 4-bit quantization:
+
+```yaml
+use_4bit: true
+bnb_4bit_quant_type: nf4
+bnb_4bit_compute_dtype: float16
+```
+
+### Running on Kaggle
+
+See [KAGGLE_SETUP.md](KAGGLE_SETUP.md) for detailed instructions on running experiments on Kaggle with GPU support.
+
+## Features
+
+- **Flexible model loading**: Supports both FP16 and 4-bit quantization
+- **Flash Attention 2**: Faster inference when available
+- **Detailed logging**: Track model loading, inference time, and memory usage
+- **Memory optimized**: Configurable memory limits and automatic device mapping
+- **Kaggle-ready**: Easy setup for cloud GPU environments
+
 ## Notes
 - All experiments assume access to a GPU and do not perform any parameter updates.
 - Activation interventions are implemented via hooks; no training or fine-tuning routines are included.
+- Model weights are frozen and kept in eval mode throughout all experiments.
