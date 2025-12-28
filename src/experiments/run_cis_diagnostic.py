@@ -61,21 +61,32 @@ def test_hook_scope(
     hidden_size = get_hidden_size(model)
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
 
-    # Capture baseline
-    print("\n1. Capturing baseline residual stream...")
-    capture_baseline = register_residual_capture(
-        model=model,
-        layer_idx=layer_idx,
-        token_position=-1,  # Capture all positions
-    )
+    # We need to capture the FULL hidden states tensor, not just one position
+    # Create custom capture hook for all positions
+    from src.hooks.residual_hooks import _get_transformer_layer  # noqa: E402
+
+    layer = _get_transformer_layer(model, layer_idx)
+
+    # Capture baseline (all positions)
+    print("\n1. Capturing baseline residual stream (all positions)...")
+    h_before = None
+
+    def capture_all_hook_before(module, input, output):
+        nonlocal h_before
+        if isinstance(output, tuple):
+            hidden_states = output[0]
+        else:
+            hidden_states = output
+        h_before = hidden_states.detach().clone()
+
+    handle_before = layer.register_forward_hook(capture_all_hook_before)
 
     try:
         with torch.no_grad():
             _ = model(**inputs)
-        h_before = capture_baseline["activations"][0]  # [batch, seq_len, hidden_dim]
         print(f"   Baseline shape: {h_before.shape}")
     finally:
-        capture_baseline["handle"].remove()
+        handle_before.remove()
 
     # Apply fixed delta
     print("\n2. Applying fixed delta (all ones * 0.01)...")
@@ -83,26 +94,31 @@ def test_hook_scope(
 
     # Run with intervention
     print(f"3. Running forward pass with hook at layer {layer_idx}, position {token_position}...")
-    handle, _ = add_residual_perturbation_hook(
+    handle_intervention, _ = add_residual_perturbation_hook(
         model=model,
         layer_idx=layer_idx,
         delta_vector=test_delta,
         token_position=token_position,
     )
 
-    capture_after = register_residual_capture(
-        model=model,
-        layer_idx=layer_idx,
-        token_position=-1,  # Capture all positions
-    )
+    h_after = None
+
+    def capture_all_hook_after(module, input, output):
+        nonlocal h_after
+        if isinstance(output, tuple):
+            hidden_states = output[0]
+        else:
+            hidden_states = output
+        h_after = hidden_states.detach().clone()
+
+    handle_after = layer.register_forward_hook(capture_all_hook_after)
 
     try:
         with torch.no_grad():
             _ = model(**inputs)
-        h_after = capture_after["activations"][0]  # [batch, seq_len, hidden_dim]
     finally:
-        handle.remove()
-        capture_after["handle"].remove()
+        handle_intervention.remove()
+        handle_after.remove()
 
     # Verify changes
     print("\n4. Verifying changes...")
