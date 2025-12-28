@@ -213,17 +213,19 @@ def run_diagnostic_optimization(
     print("\n" + "=" * 80)
     print("OPTIMIZATION LOOP")
     print("=" * 80)
-    print(f"\n{'Step':<6} {'Gap':<10} {'Margin':<10} {'Gap>=M':<10} {'Loss':<10} {'||δ||':<10} {'P(tgt)':<10} {'P(orig)':<10}")
-    print("-" * 90)
+    print("\nNOTE: Each row shows state BEFORE the gradient step for that iteration")
+    print(f"\n{'Iter':<6} {'||δ|| Before':<14} {'Gap':<10} {'Margin':<10} {'Gap>=M':<10} {'Loss':<10} {'P(tgt)':<10} {'P(orig)':<10}")
+    print("-" * 100)
 
     history = []
     success = False
 
     for step in range(max_steps):
-        optimizer.zero_grad()
-
-        # Get current delta
+        # Get current delta BEFORE step
         delta_value = delta()
+        delta_norm_before = delta.get_norm(p=2)
+
+        optimizer.zero_grad()
 
         # VALIDATION 2: Hook lifecycle - ensure clean state
         # Register hook with guaranteed cleanup
@@ -269,29 +271,29 @@ def run_diagnostic_optimization(
 
             # Backward pass
             total_loss.backward()
-            optimizer.step()
 
         finally:
             # VALIDATION 4: Always remove hook
             if handle is not None:
                 handle.remove()
 
-        # Compute metrics
+        # Compute metrics BEFORE step
         with torch.no_grad():
             probs = torch.softmax(logits, dim=-1)
             target_prob = probs[target_token_id].item()
             original_prob = probs[original_token_id].item()
-            delta_norm = delta.get_norm(p=2)
 
         # Check stopping condition - ONLY gap >= margin
         gap_satisfied = gap >= margin
 
-        # Log
+        # Log state BEFORE optimizer step
         print(
-            f"{step:<6} {gap:<10.4f} {margin:<10.4f} {str(gap_satisfied):<10} "
-            f"{total_loss.item():<10.4f} {delta_norm:<10.6f} "
-            f"{target_prob:<10.4f} {original_prob:<10.4f}"
+            f"{step:<6} {delta_norm_before:<14.6f} {gap:<10.4f} {margin:<10.4f} {str(gap_satisfied):<10} "
+            f"{total_loss.item():<10.4f} {target_prob:<10.4f} {original_prob:<10.4f}"
         )
+
+        # NOW apply the gradient step
+        optimizer.step()
 
         # Record history
         history.append({
@@ -300,16 +302,23 @@ def run_diagnostic_optimization(
             "margin": margin,
             "gap_satisfied": gap_satisfied,
             "loss": total_loss.item(),
-            "delta_norm": delta_norm,
+            "delta_norm_before": delta_norm_before,
             "target_prob": target_prob,
             "original_prob": original_prob,
         })
 
         # STOPPING CONDITION: gap >= margin
         if gap_satisfied:
-            print(f"\n✓ CONVERGED at step {step}: gap ({gap:.4f}) >= margin ({margin:.4f})")
+            # Get final delta AFTER this gradient step
+            final_delta_norm = delta.get_norm(p=2)
+            print(f"\n✓ CONVERGED at iteration {step}")
+            print(f"  Gap ({gap:.4f}) >= margin ({margin:.4f})")
+            print(f"  ||δ|| after this step: {final_delta_norm:.6f}")
             success = True
             break
+
+    # Get final state
+    final_delta_norm = delta.get_norm(p=2)
 
     # Final evaluation
     if not success:
@@ -322,16 +331,16 @@ def run_diagnostic_optimization(
     print("=" * 80)
     print(f"\nSuccess: {success}")
     print(f"Final gap: {gap:.4f} (required: {margin:.4f})")
-    print(f"Final ||δ||: {delta_norm:.6f}")
+    print(f"Final ||δ|| (after last update): {final_delta_norm:.6f}")
     print(f"Final P(target): {target_prob:.4f}")
     print(f"Final P(orig): {original_prob:.4f}")
-    print(f"Steps: {len(history)}")
+    print(f"Iterations: {len(history)}")
 
     return {
         "success": success,
         "final_gap": gap,
         "margin": margin,
-        "delta_norm": delta_norm,
+        "delta_norm": final_delta_norm,
         "target_prob": target_prob,
         "original_prob": original_prob,
         "num_steps": len(history),
